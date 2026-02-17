@@ -20,3 +20,4 @@ venv/
 *.blob
 *.bin
 
+.depthai_cached_models/
