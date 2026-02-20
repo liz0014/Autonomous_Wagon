@@ -48,13 +48,12 @@ def draw_person_detections(frame, detections, label_map):
         cv2.putText(frame, f"person {conf}%", (x1 + 6, y1 + 18),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-        # Center point (useful later for steering)
+        # Center point
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
         cv2.circle(frame, (cx, cy), 4, (255, 255, 255), -1)
 
     return person_count
-
 
 @app.route("/")
 def index():
@@ -63,20 +62,33 @@ def index():
 @app.route("/video")
 def video():
     def gen():
-        # Create pipeline (official v3 pattern)
+        # TUNING KNOBS FOR PI 4 
+        STREAM_FPS = 15              # cap streaming fps
+        JPEG_QUALITY = 60            # lower = faster, more compression
+        frame_period = 1.0 / STREAM_FPS
+        last_frame_time = time.monotonic()
+       
+
+        # Create pipeline
         with dai.Pipeline() as pipeline:
             camera = pipeline.create(dai.node.Camera).build()
 
-            # YOLOv6-nano from Luxonis Model Zoo (official example)
+            # Detection network
             det_nn = pipeline.create(dai.node.DetectionNetwork).build(
                 camera,
                 dai.NNModelDescription("yolov6-nano")
             )
             label_map = det_nn.getClasses()
 
-            # These queues come from the DetectionNetwork example
+            # Queues
             q_rgb = det_nn.passthrough.createOutputQueue()
             q_det = det_nn.out.createOutputQueue()
+
+            # IMPORTANT: prevent backlog + blocking
+            q_rgb.setMaxSize(1)
+            q_rgb.setBlocking(False)
+            q_det.setMaxSize(1)
+            q_det.setBlocking(False)
 
             pipeline.start()
 
@@ -85,24 +97,37 @@ def video():
             detections = []
 
             while pipeline.isRunning():
-                in_rgb = q_rgb.get()   # ImgFrame
-                in_det = q_det.get()   # ImgDetections
+                # Cap streaming FPS (reduce CPU load)
+                now = time.monotonic()
+                dt = now - last_frame_time
+                if dt < frame_period:
+                    time.sleep(frame_period - dt)
+                last_frame_time = time.monotonic()
+
+                # Get latest RGB (block a little if needed)
+                in_rgb = q_rgb.tryGet()
+                if in_rgb is None:
+                    # if no frame available yet, skip this iteration
+                    continue
 
                 frame = in_rgb.getCvFrame()
 
+                # Get detections WITHOUT blocking
+                in_det = q_det.tryGet()
                 if in_det is not None:
                     detections = in_det.detections
                     nn_counter += 1
 
-                # Draw detections (persons only)
+                # Draw detections
                 person_count = draw_person_detections(frame, detections, label_map)
 
-                # --- Follow logic overlay (target selection + steer/CMD) ---
+                # Follow logic overlay
                 h, w = frame.shape[:2]
                 frame_center = w // 2
+                cv2.line(frame, (frame_center, 0), (frame_center, h), (255, 255, 255), 1)
 
                 cmd = "SEARCH"
-                steer = 0.0  # -1.0 left, +1.0 right
+                steer = 0.0
 
                 target, area = target_person(frame, detections, label_map)
 
@@ -114,35 +139,35 @@ def video():
                     steer = float(error) / float(frame_center)
                     steer = max(-1.0, min(1.0, steer))
 
-                    # TEMP: bbox area used as distance proxy
+                    # TEMP distance proxy
                     cmd = "STOP" if area > 90000 else "FOLLOW"
 
-                # Draw target highlight + center line
+                    # Target highlight
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                    cv2.line(frame, (frame_center, 0), (frame_center, h), (255, 255, 255), 1)
                     cv2.circle(frame, (cx, (y1 + y2) // 2), 6, (0, 255, 0), -1)
 
                     cv2.putText(frame, f"Target cx={cx} err={error} steer={steer:+.2f} area={area}",
-                     (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                                (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-                    cv2.putText(frame, f"CMD: {cmd}  STEER: {steer:+.2f}",
-                    (8, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(frame, f"CMD: {cmd}  STEER: {steer:+.2f}",
+                            (8, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-
-                # Overlay FPS + count
-                    nn_fps = nn_counter / max(1e-6, (time.monotonic() - start))
-                    cv2.putText(frame, f"NN FPS: {nn_fps:.1f}  Persons: {person_count}",
+                # FPS overlay ALWAYS (not only when target exists)
+                nn_fps = nn_counter / max(1e-6, (time.monotonic() - start))
+                cv2.putText(frame, f"NN FPS: {nn_fps:.1f}  Persons: {person_count}",
                             (8, frame.shape[0] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-                    ok, jpg = cv2.imencode(".jpg", frame)
-                    if not ok:
-                        continue
+                # ALWAYS encode + yield (prevents browser freeze)
+                ok, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
+                if not ok:
+                    continue
 
-                    yield (b"--frame\r\n"
-                           b"Content-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n")
+                yield (b"--frame\r\n"
+                       b"Content-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n")
 
     return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, threaded=True)
+    # For Pi 4 demo stability, avoid extra threads spawning extra work
+    app.run(host="0.0.0.0", port=5000, threaded=False)
