@@ -1,7 +1,7 @@
 from app.vision.utils import frame_norm
 
 
-def target_person(frame, detections, label_map):
+def get_best_person(frame, detections, label_map):
     best = None
     best_area = 0
 
@@ -16,13 +16,6 @@ def target_person(frame, detections, label_map):
 
         if area > best_area:
             best_area = area
-            best = {
-                "x1": x1,
-                "y1": y1,
-                "x2": x2,
-                "y2": y2,
-                "confidence": det.confidence,
-                "area": area,
-            }
+            best = (x1, y1, x2, y2, det.confidence)
 
-    return best
+    return best, best_area

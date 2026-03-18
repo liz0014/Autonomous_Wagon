@@ -4,6 +4,10 @@ settings.py
 Single source of truth for tunable parameters.
 Edit here — nothing else needs to change.
 """
+# Command strings emitted by follow_logic and consumed by state_machine
+SEARCH_CMD = "SEARCH"
+FOLLOW_CMD = "FOLLOW"
+STOP_CMD   = "STOP"
 
 # ── Camera / detection ────────────────────────────────────────────────────────
 YOLO_MODEL          = "yolov6-nano"   # Luxonis Model Zoo name
