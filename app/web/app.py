@@ -2,7 +2,11 @@
 web/app.py
 ----------
 Flask MJPEG stream — headless-friendly.
-Browse to  http://<pi-ip>:5000  from any device on the same network.
+Browse to http://<pi-ip>:5000 from any device on the same network.
+
+Per-frame pipeline:
+  camera → detections → pick target → compute steer/cmd
+  → state machine → motors → HUD overlay → JPEG → browser
 """
 
 import time
@@ -19,7 +23,6 @@ from app.config.settings import FLASK_HOST, FLASK_PORT, JPEG_QUALITY
 
 flask_app = Flask(__name__)
 
-# ── Minimal HTML page ─────────────────────────────────────────────────────────
 _INDEX = """
 <!doctype html>
 <html>
@@ -31,7 +34,7 @@ _INDEX = """
   </style>
 </head>
 <body>
-  <h2>🚗 Autonomous Wagon — Live Feed</h2>
+  <h2>Autonomous Wagon — Live Feed</h2>
   <img src="/video">
 </body>
 </html>
@@ -62,23 +65,27 @@ def _stream():
         for frame, detections in frame_generator(q_rgb, q_det):
             nn_count += 1
 
-            # ── Vision ────────────────────────────────────────────────────────
+            # Vision — draw blue boxes on all detected persons
             person_count = draw_person_detections(frame, detections, label_map)
+
+            # Target selection — pick the largest/closest person
             target, area = get_best_person(frame, detections, label_map)
 
-            # ── Navigation ────────────────────────────────────────────────────
+            # Navigation — compute steering and command
             cmd, steer, frame_center = compute_follow_cmd(frame, target, area)
+
+            # State machine — transition to new state
             state = sm.update(cmd)
 
-            # ── Control ───────────────────────────────────────────────────────
+            # Control — send speeds to motors
             brain.execute(state, steer)
             serial.send(cmd, steer)
 
-            # ── HUD overlay ───────────────────────────────────────────────────
+            # HUD — paint telemetry onto the frame
             nn_fps = nn_count / max(1e-6, time.monotonic() - start)
             draw_hud(frame, cmd, steer, person_count, nn_fps, target, frame_center)
 
-            # ── Encode + yield ────────────────────────────────────────────────
+            # Encode and stream
             encode_params = [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
             ok, jpg = cv2.imencode(".jpg", frame, encode_params)
             if not ok:
@@ -93,7 +100,7 @@ def _stream():
 
 
 def create_app():
-    """Factory used by run.py (and pytest fixtures)."""
+    """Initialise hardware then return the Flask app."""
     motor_pwm.init()
     serial.init()
     return flask_app

@@ -1,98 +1,49 @@
-import time
-import cv2
+"""
+navigation/brain.py
+-------------------
+Translates WagonState + steer value into left/right motor speeds.
+This is the only file that calls motor_pwm.
+No drawing, no detection logic — just drive physics.
 
-from app.navigation.person_detection_logic import target_person
-from app.navigation.follow_logic import compute_follow_command
-from app.vision.utils import frame_norm
+Differential drive steering:
+  correction  = steer * STEER_GAIN
+  left_speed  = BASE_SPEED - correction
+  right_speed = BASE_SPEED + correction
+
+Example — target is to the right, steer = +0.5:
+  correction  = +0.5 * 0.40 = +0.20
+  left_speed  = 0.55 - 0.20 = 0.35  (slows down)
+  right_speed = 0.55 + 0.20 = 0.75  (speeds up)
+  → right wheel faster = wagon curves right = target re-centres ✓
+"""
+
+from app.navigation.state_machine import WagonState
+from app.control import motor_pwm
+from app.config.settings import BASE_SPEED, SEARCH_TURN_SPEED, STEER_GAIN
 
 
-def draw_person_detections(frame, detections, label_map):
-    person_count = 0
+def execute(state: WagonState, steer: float):
+    """
+    Args:
+        state : WagonState enum value from state_machine
+        steer : float [-1.0, +1.0] from follow_logic
+    """
+    if state == WagonState.STOP:
+        # Person too close — cut both motors
+        motor_pwm.set_speeds(0, 0)
 
-    for det in detections:
-        label = label_map[det.label] if det.label < len(label_map) else str(det.label)
-        if label != "person":
-            continue
+    elif state == WagonState.SEARCH:
+        # No person visible — spin slowly in place to scan
+        # Left reverse + right forward = counter-clockwise rotation
+        # Flip signs if your wagon spins the wrong way
+        motor_pwm.set_speeds(-SEARCH_TURN_SPEED, SEARCH_TURN_SPEED)
 
-        person_count += 1
-        bbox = frame_norm(frame, (det.xmin, det.ymin, det.xmax, det.ymax))
-        x1, y1, x2, y2 = bbox.tolist()
-
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-        conf = int(det.confidence * 100)
-        cv2.putText(
-            frame,
-            f"person {conf}%",
-            (x1 + 6, y1 + 18),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            1,
+    elif state == WagonState.FOLLOW:
+        correction = steer * STEER_GAIN
+        left  = BASE_SPEED - correction
+        right = BASE_SPEED + correction
+        # Clamp to [-1, +1] to never send out-of-range values to PWM
+        motor_pwm.set_speeds(
+            max(-1.0, min(1.0, left)),
+            max(-1.0, min(1.0, right)),
         )
-
-        cx = (x1 + x2) // 2
-        cy = (y1 + y2) // 2
-        cv2.circle(frame, (cx, cy), 4, (255, 255, 255), -1)
-
-    return person_count
-
-
-class Brain:
-    def __init__(self):
-        self.start_time = time.monotonic()
-        self.nn_counter = 0
-
-    def process(self, frame, detections, label_map):
-        self.nn_counter += 1
-
-        person_count = draw_person_detections(frame, detections, label_map)
-
-        h, w = frame.shape[:2]
-        frame_center = w // 2
-
-        target = target_person(frame, detections, label_map)
-        result = compute_follow_command(w, target)
-
-        if target is not None:
-            x1 = target["x1"]
-            y1 = target["y1"]
-            x2 = target["x2"]
-            y2 = target["y2"]
-            cx = result["cx"]
-
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
-            cv2.line(frame, (frame_center, 0), (frame_center, h), (255, 255, 255), 1)
-            cv2.circle(frame, (cx, (y1 + y2) // 2), 6, (0, 255, 0), -1)
-
-            cv2.putText(
-                frame,
-                f"Target cx={cx} err={result['error']} steer={result['steer']:+.2f} area={result['area']}",
-                (8, 20),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (255, 255, 255),
-                1,
-            )
-
-        cv2.putText(
-            frame,
-            f"CMD: {result['cmd']}  STEER: {result['steer']:+.2f}",
-            (8, 45),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
-            2,
-        )
-
-        nn_fps = self.nn_counter / max(1e-6, (time.monotonic() - self.start_time))
-        cv2.putText(
-            frame,
-            f"NN FPS: {nn_fps:.1f}  Persons: {person_count}",
-            (8, frame.shape[0] - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            1,
-        )
-
-        return frame, result
