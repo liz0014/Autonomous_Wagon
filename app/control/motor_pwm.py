@@ -1,51 +1,87 @@
-import time
+"""
+motor_pwm.py
+------------
+Low-level PWM interface for two DC motors via RPi GPIO (or pigpio).
+Speeds are normalised floats: -1.0 (full reverse) to +1.0 (full forward).
 
+Pin assignments → app/config/settings.py
+"""
+
+import logging
+
+log = logging.getLogger(__name__)
+
+# ── Try to import RPi.GPIO; fall back to a stub so the code runs on non-Pi ──
 try:
     import RPi.GPIO as GPIO
-    ON_PI = True
+    _HW_AVAILABLE = True
 except ImportError:
-    ON_PI = False
+    log.warning("RPi.GPIO not found — running in stub mode (no physical output).")
+    _HW_AVAILABLE = False
 
-class MotorPWM:
-    def __init__(self, pwm_pin=18, freq_hz=50, duty_stop=7.5, duty_forward=8.2):
-        self.pwm_pin = pwm_pin
-        self.freq_hz = freq_hz
-        self.duty_stop = duty_stop
-        self.duty_forward = duty_forward
-        self._pwm = None
-        self._last = None
+from app.config.settings import (
+    PIN_LEFT_FWD, PIN_LEFT_REV, PIN_LEFT_PWM,
+    PIN_RIGHT_FWD, PIN_RIGHT_REV, PIN_RIGHT_PWM,
+    PWM_FREQ_HZ,
+)
 
-    def start(self):
-        if not ON_PI:
-            print("[MOTOR] RPi.GPIO not found -> SIM mode")
-            return
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.pwm_pin, GPIO.OUT)
-        self._pwm = GPIO.PWM(self.pwm_pin, self.freq_hz)
-        self._pwm.start(self.duty_stop)
-        self._last = self.duty_stop
+_pwm_left  = None
+_pwm_right = None
 
-    def _set(self, duty):
-        if not ON_PI:
-            print(f"[MOTOR][SIM] duty={duty}")
-            return
-        if self._last is None or abs(duty - self._last) > 0.01:
-            self._pwm.ChangeDutyCycle(duty)
-            self._last = duty
 
-    def stop(self):
-        self._set(self.duty_stop)
+def init():
+    """Call once at startup to configure GPIO pins and PWM channels."""
+    global _pwm_left, _pwm_right
 
-    def forward(self):
-        self._set(self.duty_forward)
+    if not _HW_AVAILABLE:
+        return
 
-    def cleanup(self):
-        if not ON_PI:
-            return
-        try:
-            self.stop()
-            time.sleep(0.1)
-            self._pwm.stop()
-        except Exception:
-            pass
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
+
+    for pin in (PIN_LEFT_FWD, PIN_LEFT_REV, PIN_LEFT_PWM,
+                PIN_RIGHT_FWD, PIN_RIGHT_REV, PIN_RIGHT_PWM):
+        GPIO.setup(pin, GPIO.OUT)
+
+    _pwm_left  = GPIO.PWM(PIN_LEFT_PWM,  PWM_FREQ_HZ)
+    _pwm_right = GPIO.PWM(PIN_RIGHT_PWM, PWM_FREQ_HZ)
+    _pwm_left.start(0)
+    _pwm_right.start(0)
+    log.info("Motor PWM initialised.")
+
+
+def set_speeds(left: float, right: float):
+    """
+    Drive both motors.
+    left / right: floats in [-1.0, +1.0]
+    """
+    _drive_motor(PIN_LEFT_FWD,  PIN_LEFT_REV,  _pwm_left,  left)
+    _drive_motor(PIN_RIGHT_FWD, PIN_RIGHT_REV, _pwm_right, right)
+
+
+def stop():
+    set_speeds(0, 0)
+
+
+def cleanup():
+    stop()
+    if _HW_AVAILABLE:
         GPIO.cleanup()
+
+
+# ── Internal ──────────────────────────────────────────────────────────────────
+
+def _drive_motor(pin_fwd, pin_rev, pwm_ch, speed):
+    duty = int(abs(speed) * 100)
+    if _HW_AVAILABLE:
+        if speed >= 0:
+            GPIO.output(pin_fwd, GPIO.HIGH)
+            GPIO.output(pin_rev, GPIO.LOW)
+        else:
+            GPIO.output(pin_fwd, GPIO.LOW)
+            GPIO.output(pin_rev, GPIO.HIGH)
+        if pwm_ch:
+            pwm_ch.ChangeDutyCycle(duty)
+    else:
+        direction = "FWD" if speed >= 0 else "REV"
+        log.debug("MOTOR STUB  pin_fwd=%s  %s  duty=%d%%", pin_fwd, direction, duty)

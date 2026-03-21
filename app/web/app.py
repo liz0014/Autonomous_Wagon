@@ -1,100 +1,104 @@
+"""
+web/app.py
+----------
+Flask MJPEG stream — headless-friendly.
+Browse to  http://<pi-ip>:5000  from any device on the same network.
+"""
+
 import time
 import cv2
-from flask import Flask, Response
+from flask import Flask, Response, render_template_string
 
-from vision.oak_yolo import start_yolo_pipeline
-from vision.utils import draw_person_detections
-from vision.tracking import target_person
-from control.brain import decide_command
-from control.motor_pwm import MotorPWM
+from app.vision.oakd_camera import build_pipeline, frame_generator
+from app.vision.utils import draw_person_detections, draw_hud
+from app.navigation.person_detection_logic import get_best_person
+from app.navigation.follow_logic import compute_follow_cmd
+from app.navigation.state_machine import StateMachine
+from app.control import brain, motor_pwm, serial
+from app.config.settings import FLASK_HOST, FLASK_PORT, JPEG_QUALITY
 
-app = Flask(__name__)
+flask_app = Flask(__name__)
 
-motor = MotorPWM(pwm_pin=18, duty_stop=7.5, duty_forward=8.2)
+# ── Minimal HTML page ─────────────────────────────────────────────────────────
+_INDEX = """
+<!doctype html>
+<html>
+<head>
+  <title>Autonomous Wagon</title>
+  <style>
+    body { background:#111; color:#eee; font-family:monospace; text-align:center; }
+    img  { max-width:100%; border:2px solid #0f0; margin-top:12px; }
+  </style>
+</head>
+<body>
+  <h2>🚗 Autonomous Wagon — Live Feed</h2>
+  <img src="/video">
+</body>
+</html>
+"""
 
-@app.route("/")
+
+@flask_app.route("/")
 def index():
-    return "<h3>Person Detection</h3><img src='/video'>"
+    return render_template_string(_INDEX)
 
-@app.route("/video")
+
+@flask_app.route("/video")
 def video():
-    def gen():
-        # Start motor + pipeline once per stream
-        motor.start()
-        motor.stop()
+    return Response(_stream(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
-        pipeline, q_rgb, q_det, label_map = start_yolo_pipeline("yolov6-nano")
 
-        start = time.monotonic()
-        nn_counter = 0
-        detections = []
+def _stream():
+    """Core generator: camera → detection → navigation → motor → JPEG."""
+    sm = StateMachine()
 
-        try:
-            while pipeline.isRunning():
-                in_rgb = q_rgb.get()
-                in_det = q_det.get()
+    pipeline, q_rgb, q_det, label_map = build_pipeline()
+    pipeline.start()
 
-                frame = in_rgb.getCvFrame()
+    start    = time.monotonic()
+    nn_count = 0
 
-                if in_det is not None:
-                    detections = in_det.detections
-                    nn_counter += 1
+    try:
+        for frame, detections in frame_generator(q_rgb, q_det):
+            nn_count += 1
 
-                # Draw all persons (blue boxes)
-                person_count = draw_person_detections(frame, detections, label_map)
+            # ── Vision ────────────────────────────────────────────────────────
+            person_count = draw_person_detections(frame, detections, label_map)
+            target, area = get_best_person(frame, detections, label_map)
 
-                # Target selection
-                h, w = frame.shape[:2]
-                frame_center = w // 2
+            # ── Navigation ────────────────────────────────────────────────────
+            cmd, steer, frame_center = compute_follow_cmd(frame, target, area)
+            state = sm.update(cmd)
 
-                target, area = target_person(frame, detections, label_map)
-                has_target = (target is not None)
+            # ── Control ───────────────────────────────────────────────────────
+            brain.execute(state, steer)
+            serial.send(cmd, steer)
 
-                # Decide command (SEARCH / FOLLOW / STOP)
-                cmd = decide_command(area, has_target, stop_area_threshold=90000)
+            # ── HUD overlay ───────────────────────────────────────────────────
+            nn_fps = nn_count / max(1e-6, time.monotonic() - start)
+            draw_hud(frame, cmd, steer, person_count, nn_fps, target, frame_center)
 
-                # Motor action
-                if cmd == "FOLLOW":
-                    motor.forward()
-                else:
-                    motor.stop()
+            # ── Encode + yield ────────────────────────────────────────────────
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
+            ok, jpg = cv2.imencode(".jpg", frame, encode_params)
+            if not ok:
+                continue
 
-                # Overlay target + aiming info (green box)
-                steer = 0.0
-                if has_target:
-                    x1, y1, x2, y2, conf = target
-                    cx = (x1 + x2) // 2
-                    error = cx - frame_center
+            yield (b"--frame\r\n"
+                   b"Content-Type: image/jpeg\r\n\r\n"
+                   + jpg.tobytes()
+                   + b"\r\n")
+    finally:
+        pipeline.stop()
 
-                    steer = float(error) / float(frame_center)
-                    steer = max(-1.0, min(1.0, steer))
 
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                    cv2.line(frame, (frame_center, 0), (frame_center, h), (255, 255, 255), 1)
-                    cv2.circle(frame, (cx, (y1 + y2) // 2), 6, (0, 255, 0), -1)
-                    cv2.putText(frame, f"Target cx={cx} err={error} steer={steer:+.2f} area={area}",
-                                (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                else:
-                    cv2.putText(frame, "No target",
-                                (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+def create_app():
+    """Factory used by run.py (and pytest fixtures)."""
+    motor_pwm.init()
+    serial.init()
+    return flask_app
 
-                # Overlay command + fps (ALWAYS shown)
-                nn_fps = nn_counter / max(1e-6, (time.monotonic() - start))
-                cv2.putText(frame, f"CMD: {cmd}  STEER: {steer:+.2f}",
-                            (8, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-                cv2.putText(frame, f"NN FPS: {nn_fps:.1f}  Persons: {person_count}",
-                            (8, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-                ok, jpg = cv2.imencode(".jpg", frame)
-                if not ok:
-                    continue
-
-                yield (b"--frame\r\n"
-                       b"Content-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n")
-
-        finally:
-            motor.stop()
-            motor.cleanup()
-
-    return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
+if __name__ == "__main__":
+    app = create_app()
+    app.run(host=FLASK_HOST, port=FLASK_PORT, threaded=True)

@@ -1,8 +1,3 @@
-
-"""
-wheel testing code, without the camera:
-
-"""
 import RPi.GPIO as GPIO
 import time
 
