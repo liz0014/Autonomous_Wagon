@@ -55,14 +55,13 @@ def _stream():
     """Core generator: camera → detection → navigation → motor → JPEG."""
     sm = StateMachine()
 
-    pipeline, q_rgb, q_det, label_map = build_pipeline()
-    pipeline.start()
+    camera, model, label_map = build_pipeline()
 
     start    = time.monotonic()
     nn_count = 0
 
     try:
-        for frame, detections in frame_generator(q_rgb, q_det):
+        for frame, detections in frame_generator(camera, model):
             nn_count += 1
 
             # Vision — draw blue boxes on all detected persons
@@ -96,7 +95,7 @@ def _stream():
                    + jpg.tobytes()
                    + b"\r\n")
     finally:
-        pipeline.stop()
+        camera.release()
 
 
 def create_app():

@@ -10,7 +10,7 @@ FOLLOW_CMD = "FOLLOW"
 STOP_CMD   = "STOP"
 
 # ── Camera / detection ────────────────────────────────────────────────────────
-YOLO_MODEL          = "yolov6-nano"   # Luxonis Model Zoo name
+YOLO_MODEL          = "yolov8n"       # YOLOv8 nano model name
 FRAME_CENTER_FRACTION = 0.5           # 0.5 = exact horizontal centre
 
 # ── Follow behaviour ──────────────────────────────────────────────────────────
