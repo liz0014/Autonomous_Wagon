@@ -18,7 +18,7 @@ from app.vision.utils import draw_person_detections, draw_hud
 from app.vision.tracking import PersonTracker
 from app.navigation.follow_logic import compute_follow_cmd
 from app.navigation.state_machine import StateMachine, WagonState
-from app.control import brain, motor_pwm, serial
+from app.control import brain, motor_dac, serial
 from app.config.settings import FLASK_HOST, FLASK_PORT, JPEG_QUALITY
 
 flask_app = Flask(__name__)
@@ -230,8 +230,8 @@ def _stream():
 
 
 def create_app():
-    """Initialise hardware then return the Flask app."""
-    motor_pwm.init()
+    """Initialise hardware (motor DAC, serial) then return the Flask app."""
+    motor_dac.init()
     serial.init()
     return flask_app
 

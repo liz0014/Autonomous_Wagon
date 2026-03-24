@@ -22,7 +22,7 @@ Example — target is to the right, steer = +0.5, speed_factor = 0.5:
 """
 
 from app.navigation.state_machine import WagonState
-from app.control import motor_pwm
+from app.control import motor_dac
 from app.config.settings import (
     BASE_SPEED, SEARCH_TURN_SPEED, STEER_GAIN, ACCEL_RAMP_RATE,
 )
@@ -75,4 +75,4 @@ def execute(state: WagonState, steer: float, speed_factor: float = 1.0):
     _prev_left = _ramp(_prev_left, target_left, ACCEL_RAMP_RATE)
     _prev_right = _ramp(_prev_right, target_right, ACCEL_RAMP_RATE)
 
-    motor_pwm.set_speeds(_prev_left, _prev_right)
+    motor_dac.set_speeds(_prev_left, _prev_right)
