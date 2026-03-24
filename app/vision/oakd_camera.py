@@ -8,11 +8,13 @@ stays decoupled from hardware specifics.
 
 import depthai as dai
 
+from app.config.settings import YOLO_MODEL
+
 
 def build_pipeline():
     """
     Build and return (pipeline, q_rgb, q_det, label_map).
-    Uses YOLOv6-nano from the Luxonis Model Zoo.
+    Uses YOLO_MODEL from settings (default: yolov8n) via the Luxonis Model Zoo.
     Caller is responsible for pipeline.start() / pipeline.stop().
     """
     pipeline = dai.Pipeline()
@@ -21,7 +23,7 @@ def build_pipeline():
 
     det_nn = pipeline.create(dai.node.DetectionNetwork).build(
         camera,
-        dai.NNModelDescription("yolov6-nano")
+        dai.NNModelDescription(YOLO_MODEL)
     )
     label_map = det_nn.getClasses()
 

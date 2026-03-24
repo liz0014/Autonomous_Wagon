@@ -1,30 +1,63 @@
-
 """
-full robot:
-
+run_wagon.py
+------------
+Headless full-robot loop (no Flask, no video stream).
+Camera → detect → track → navigate → drive motors.
 """
 
 import time
-from app.vision.oak_camera import OakPersonDetector
-from app.vision.person_detection import target_person
-from app.navigation.follow_logic import decide_follow_command
-from app.control.brain import execute_command
+import logging
+
+from app.vision.oakd_camera import build_pipeline, frame_generator
+from app.vision.tracking import PersonTracker
+from app.navigation.person_detection_logic import get_all_persons
+from app.navigation.follow_logic import compute_follow_cmd
+from app.navigation.state_machine import StateMachine
+from app.control import brain, motor_pwm, serial
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+)
+
 
 def main():
-    detector = OakPersonDetector()
-    detector.start()
+    motor_pwm.init()
+    serial.init()
 
-    while detector.is_running():
-        frame, detections, label_map = detector.get_frame_and_detections()
-        h, w = frame.shape[:2]
+    sm = StateMachine()
+    tracker = PersonTracker()
 
-        target, area = target_person(frame, detections, label_map)
-        result = decide_follow_command(w, target, area)
+    pipeline, q_rgb, q_det, label_map = build_pipeline()
+    pipeline.start()
 
-        print(f"CMD={result['cmd']} STEER={result['steer']:+.2f}")
-        execute_command(result["cmd"], result["steer"])
+    try:
+        for frame, detections in frame_generator(q_rgb, q_det):
+            person_dets = get_all_persons(frame, detections, label_map)
+            active_tracks = tracker.update(person_dets)
+            target_track = tracker.get_best_target(active_tracks)
 
-        time.sleep(0.05)
+            if target_track is not None:
+                _tid, x1, y1, x2, y2, conf = target_track
+                target = (x1, y1, x2, y2, conf)
+                area = max(0, x2 - x1) * max(0, y2 - y1)
+            else:
+                target, area = None, 0
+
+            cmd, steer, speed_factor, _ = compute_follow_cmd(frame, target, area)
+            state = sm.update(cmd)
+            brain.execute(state, steer, speed_factor)
+            serial.send(cmd, steer)
+
+            print(f"CMD={cmd}  STEER={steer:+.2f}  SPD={speed_factor:.0%}")
+            time.sleep(0.01)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        motor_pwm.cleanup()
+        serial.close()
+        pipeline.stop()
+
 
 if __name__ == "__main__":
     main()

@@ -5,8 +5,8 @@ Flask MJPEG stream — headless-friendly.
 Browse to http://<pi-ip>:5000 from any device on the same network.
 
 Per-frame pipeline:
-  camera → detections → pick target → compute steer/cmd
-  → state machine → motors → HUD overlay → JPEG → browser
+  camera → detections → tracker → pick target → compute steer/cmd/speed
+  → state machine → motors (with ramp) → HUD overlay → JPEG → browser
 """
 
 import time
@@ -15,7 +15,8 @@ from flask import Flask, Response, render_template_string
 
 from app.vision.oakd_camera import build_pipeline, frame_generator
 from app.vision.utils import draw_person_detections, draw_hud
-from app.navigation.person_detection_logic import get_best_person
+from app.vision.tracking import PersonTracker
+from app.navigation.person_detection_logic import get_all_persons
 from app.navigation.follow_logic import compute_follow_cmd
 from app.navigation.state_machine import StateMachine
 from app.control import brain, motor_pwm, serial
@@ -52,8 +53,9 @@ def video():
 
 
 def _stream():
-    """Core generator: camera → detection → navigation → motor → JPEG."""
+    """Core generator: camera → detection → tracker → navigation → motor → JPEG."""
     sm = StateMachine()
+    tracker = PersonTracker()
 
     pipeline, q_rgb, q_det, label_map = build_pipeline()
     pipeline.start()
@@ -68,22 +70,35 @@ def _stream():
             # Vision — draw blue boxes on all detected persons
             person_count = draw_person_detections(frame, detections, label_map)
 
-            # Target selection — pick the largest/closest person
-            target, area = get_best_person(frame, detections, label_map)
+            # Tracker — get persistent IDs for all person detections
+            person_dets = get_all_persons(frame, detections, label_map)
+            active_tracks = tracker.update(person_dets)
+            target_track = tracker.get_best_target(active_tracks)
 
-            # Navigation — compute steering and command
-            cmd, steer, frame_center = compute_follow_cmd(frame, target, area)
+            # Unpack tracker output to (x1,y1,x2,y2,conf) + area
+            if target_track is not None:
+                _tid, x1, y1, x2, y2, conf = target_track
+                target = (x1, y1, x2, y2, conf)
+                area = max(0, x2 - x1) * max(0, y2 - y1)
+            else:
+                target, area = None, 0
+
+            # Navigation — compute steering, speed factor, and command
+            cmd, steer, speed_factor, frame_center = compute_follow_cmd(
+                frame, target, area
+            )
 
             # State machine — transition to new state
             state = sm.update(cmd)
 
-            # Control — send speeds to motors
-            brain.execute(state, steer)
+            # Control — send speeds to motors (with acceleration ramp)
+            brain.execute(state, steer, speed_factor)
             serial.send(cmd, steer)
 
             # HUD — paint telemetry onto the frame
             nn_fps = nn_count / max(1e-6, time.monotonic() - start)
-            draw_hud(frame, cmd, steer, person_count, nn_fps, target, frame_center)
+            draw_hud(frame, cmd, steer, person_count, nn_fps,
+                     target, frame_center, speed_factor)
 
             # Encode and stream
             encode_params = [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
@@ -97,6 +112,13 @@ def _stream():
                    + b"\r\n")
     finally:
         pipeline.stop()
+
+
+def create_app():
+    """Factory used by run.py and tests."""
+    motor_pwm.init()
+    serial.init()
+    return flask_app
 
 
 def create_app():
