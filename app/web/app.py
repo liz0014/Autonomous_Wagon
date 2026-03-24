@@ -5,40 +5,24 @@ Flask MJPEG stream — headless-friendly.
 Browse to http://<pi-ip>:5000 from any device on the same network.
 
 Per-frame pipeline:
-<<<<<<< HEAD
   camera → detections → tracker (with LOCK/UNLOCK) → compute steer/cmd
   → state machine → motors → HUD overlay → JPEG → browser
-=======
-  camera → detections → tracker → pick target → compute steer/cmd/speed
-  → state machine → motors (with ramp) → HUD overlay → JPEG → browser
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
 """
 
 import time
 import cv2
-<<<<<<< HEAD
-from flask import Flask, Response, render_template_string, jsonify, request
-=======
-from flask import Flask, Response, render_template_string
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
+from flask import Flask, Response, render_template_string, jsonify
 
 from app.vision.oakd_camera import build_pipeline, frame_generator
 from app.vision.utils import draw_person_detections, draw_hud
 from app.vision.tracking import PersonTracker
-<<<<<<< HEAD
 from app.navigation.follow_logic import compute_follow_cmd
 from app.navigation.state_machine import StateMachine, WagonState
-=======
-from app.navigation.person_detection_logic import get_all_persons
-from app.navigation.follow_logic import compute_follow_cmd
-from app.navigation.state_machine import StateMachine
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
 from app.control import brain, motor_pwm, serial
 from app.config.settings import FLASK_HOST, FLASK_PORT, JPEG_QUALITY
 
 flask_app = Flask(__name__)
 
-<<<<<<< HEAD
 # Global tracker — persists across frames in the stream
 _tracker = PersonTracker()
 
@@ -109,36 +93,14 @@ _INDEX = """
 </html>
 """
 
-=======
-_INDEX = """
-<!doctype html>
-<html>
-<head>
-  <title>Autonomous Wagon</title>
-  <style>
-    body { background:#111; color:#eee; font-family:monospace; text-align:center; }
-    img  { max-width:100%; border:2px solid #0f0; margin-top:12px; }
-  </style>
-</head>
-<body>
-  <h2>Autonomous Wagon — Live Feed</h2>
-  <img src="/video">
-</body>
-</html>
-"""
-
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
-
 @flask_app.route("/")
 def index():
     return render_template_string(_INDEX)
 
 
-<<<<<<< HEAD
 @flask_app.route("/lock", methods=["POST"])
 def lock_person():
     """Called when user clicks LOCK button. Expects the best detection from this frame."""
-    # The actual locking happens in the stream when _lock_pending is True
     return jsonify({
         "locked": _tracker.locked,
         "missed_frames": _tracker.missed_frames,
@@ -157,14 +119,10 @@ def unlock_person():
     })
 
 
-=======
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
 @flask_app.route("/video")
 def video():
     return Response(_stream(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
-
-<<<<<<< HEAD
 
 def _stream():
     """
@@ -181,9 +139,6 @@ def _stream():
 
     start    = time.monotonic()
     nn_count = 0
-    
-    # On first lock, save the target person
-    _lock_pending = False
 
     try:
         for frame, detections in frame_generator(camera, model):
@@ -197,21 +152,19 @@ def _stream():
             target = _tracker.update(detections, frame)
             
             # If not locked yet, optionally auto-lock to largest (simple fallback)
-            if not _tracker.locked and detections and not _lock_pending:
+            if not _tracker.locked and detections:
                 # Find largest person as fallback when not tracking
                 best_box = None
                 best_area = 0
                 for det in detections:
-                    label = label_map.get(det.label, str(det.label))
-                    if label == "person":
-                        x1, y1, x2, y2 = (int(det.xmin * frame.shape[1]),
-                                         int(det.ymin * frame.shape[0]),
-                                         int(det.xmax * frame.shape[1]),
-                                         int(det.ymax * frame.shape[0]))
-                        area = (x2 - x1) * (y2 - y1)
-                        if area > best_area:
-                            best_area = area
-                            best_box = (x1, y1, x2, y2, det.confidence)
+                    x1, y1, x2, y2 = (int(det.xmin * frame.shape[1]),
+                                     int(det.ymin * frame.shape[0]),
+                                     int(det.xmax * frame.shape[1]),
+                                     int(det.ymax * frame.shape[0]))
+                    area = (x2 - x1) * (y2 - y1)
+                    if area > best_area:
+                        best_area = area
+                        best_box = (x1, y1, x2, y2, det.confidence)
                 
                 # Auto-lock to largest person as fallback
                 if best_box:
@@ -227,9 +180,9 @@ def _stream():
             # ── Navigation: compute steering and command ────────────────────
             if _tracker.is_lost:
                 # Person lost — wagon should stop
-                cmd, steer, frame_center = "STOP", 0.0, frame.shape[1] // 2
+                cmd, steer, speed_factor, frame_center = "STOP", 0.0, 0.0, frame.shape[1] // 2
             else:
-                cmd, steer, frame_center = compute_follow_cmd(frame, target, area)
+                cmd, steer, speed_factor, frame_center = compute_follow_cmd(frame, target, area)
 
             # State machine — transition to new state
             state = sm.update(cmd)
@@ -237,11 +190,11 @@ def _stream():
             # Control — send speeds to motors (only if LOCKED)
             # Unlock disables motor control for safety
             if _tracker.locked:
-                brain.execute(state, steer)
+                brain.execute(state, steer, speed_factor)
                 serial.send(cmd, steer)
             else:
                 # Not tracking — disable motors
-                brain.execute(WagonState.STOP, 0.0)
+                brain.execute(WagonState.STOP, 0.0, 0.0)
                 serial.send("STOP", 0.0)
 
             # HUD — paint telemetry onto the frame
@@ -256,7 +209,7 @@ def _stream():
             else:
                 tracker_status = "  [IDLE — click LOCK to track]"
             
-            draw_hud(frame, cmd, steer, person_count, nn_fps, target, frame_center)
+            draw_hud(frame, cmd, steer, person_count, nn_fps, target, frame_center, speed_factor)
             
             # Draw tracker status on frame
             cv2.putText(frame, tracker_status, (8, frame.shape[0] - 30),
@@ -283,84 +236,6 @@ def create_app():
     return flask_app
 
 
-=======
-def _stream():
-    """Core generator: camera → detection → tracker → navigation → motor → JPEG."""
-    sm = StateMachine()
-    tracker = PersonTracker()
-
-    pipeline, q_rgb, q_det, label_map = build_pipeline()
-    pipeline.start()
-
-    start    = time.monotonic()
-    nn_count = 0
-
-    try:
-        for frame, detections in frame_generator(q_rgb, q_det):
-            nn_count += 1
-
-            # Vision — draw blue boxes on all detected persons
-            person_count = draw_person_detections(frame, detections, label_map)
-
-            # Tracker — get persistent IDs for all person detections
-            person_dets = get_all_persons(frame, detections, label_map)
-            active_tracks = tracker.update(person_dets)
-            target_track = tracker.get_best_target(active_tracks)
-
-            # Unpack tracker output to (x1,y1,x2,y2,conf) + area
-            if target_track is not None:
-                _tid, x1, y1, x2, y2, conf = target_track
-                target = (x1, y1, x2, y2, conf)
-                area = max(0, x2 - x1) * max(0, y2 - y1)
-            else:
-                target, area = None, 0
-
-            # Navigation — compute steering, speed factor, and command
-            cmd, steer, speed_factor, frame_center = compute_follow_cmd(
-                frame, target, area
-            )
-
-            # State machine — transition to new state
-            state = sm.update(cmd)
-
-            # Control — send speeds to motors (with acceleration ramp)
-            brain.execute(state, steer, speed_factor)
-            serial.send(cmd, steer)
-
-            # HUD — paint telemetry onto the frame
-            nn_fps = nn_count / max(1e-6, time.monotonic() - start)
-            draw_hud(frame, cmd, steer, person_count, nn_fps,
-                     target, frame_center, speed_factor)
-
-            # Encode and stream
-            encode_params = [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
-            ok, jpg = cv2.imencode(".jpg", frame, encode_params)
-            if not ok:
-                continue
-
-            yield (b"--frame\r\n"
-                   b"Content-Type: image/jpeg\r\n\r\n"
-                   + jpg.tobytes()
-                   + b"\r\n")
-    finally:
-        pipeline.stop()
-
-
-def create_app():
-    """Factory used by run.py and tests."""
-    motor_pwm.init()
-    serial.init()
-    return flask_app
-
-
-def create_app():
-    """Initialise hardware then return the Flask app."""
-    motor_pwm.init()
-    serial.init()
-    return flask_app
-
-
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
 if __name__ == "__main__":
     app = create_app()
     app.run(host=FLASK_HOST, port=FLASK_PORT, threaded=True)

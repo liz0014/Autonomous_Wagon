@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-=======
 """
 wagon_vision_yolo8.py
 ---------------------
@@ -56,4 +54,3 @@ def run(source=0):
 if __name__ == "__main__":
     src = sys.argv[1] if len(sys.argv) > 1 else 0
     run(src)
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4

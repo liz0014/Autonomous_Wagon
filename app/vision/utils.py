@@ -1,11 +1,8 @@
 import numpy as np
 import cv2
 
-<<<<<<< HEAD
-=======
 from app.config.settings import DETECTION_LABEL
 
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
 
 def frame_norm(frame, bbox):
     """Convert normalized 0..1 bbox coords to pixel coordinates."""
@@ -16,13 +13,8 @@ def frame_norm(frame, bbox):
 
 def draw_person_detections(frame, detections, label_map):
     """
-<<<<<<< HEAD
-    Draw bounding boxes + confidence for every 'person' detection.
-    Returns the count of persons drawn.
-=======
     Draw bounding boxes + confidence for every detection matching DETECTION_LABEL.
     Returns the count of detections drawn.
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
     """
     person_count = 0
     for det in detections:
@@ -47,12 +39,8 @@ def draw_person_detections(frame, detections, label_map):
     return person_count
 
 
-<<<<<<< HEAD
-def draw_hud(frame, cmd, steer, person_count, nn_fps, target=None, frame_center=None):
-=======
 def draw_hud(frame, cmd, steer, person_count, nn_fps,
              target=None, frame_center=None, speed_factor=0.0):
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
     """
     Render HUD overlay: target highlight, center line, telemetry text.
     """
@@ -72,11 +60,7 @@ def draw_hud(frame, cmd, steer, person_count, nn_fps,
                     f"Target cx={cx} err={error} steer={steer:+.2f}",
                     (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-<<<<<<< HEAD
-    cv2.putText(frame, f"CMD: {cmd}  STEER: {steer:+.2f}",
-=======
     cv2.putText(frame, f"CMD: {cmd}  STEER: {steer:+.2f}  SPD: {speed_factor:.0%}",
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
                 (8, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
     cv2.putText(frame, f"NN FPS: {nn_fps:.1f}  Persons: {person_count}",

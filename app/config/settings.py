@@ -10,19 +10,6 @@ FOLLOW_CMD = "FOLLOW"
 STOP_CMD   = "STOP"
 
 # ── Camera / detection ────────────────────────────────────────────────────────
-<<<<<<< HEAD
-YOLO_MODEL          = "yolov8n"       # YOLOv8 nano model name
-FRAME_CENTER_FRACTION = 0.5           # 0.5 = exact horizontal centre
-
-# ── Follow behaviour ──────────────────────────────────────────────────────────
-# Pixel area of target bbox that triggers STOP (tune for your environment)
-STOP_AREA_THRESHOLD = 90_000
-
-# ── Motor drive ───────────────────────────────────────────────────────────────
-BASE_SPEED       = 0.55   # 0.0–1.0 forward cruise speed
-SEARCH_TURN_SPEED = 0.30  # spin-in-place speed while searching
-STEER_GAIN       = 0.40   # how aggressively steer corrects heading
-=======
 YOLO_MODEL            = "yolov8n"     # Luxonis Model Zoo name (YOLOv8 nano)
 DETECTION_LABEL       = "person"      # class to track (swap when using a custom vest model)
 FRAME_CENTER_FRACTION = 0.5           # 0.5 = exact horizontal centre
@@ -42,7 +29,6 @@ ACCEL_RAMP_RATE   = 0.05   # max speed change per frame (smooths jerks)
 # ── Tracker ───────────────────────────────────────────────────────────────────
 TRACKER_MAX_LOST_FRAMES = 15   # frames before a track is dropped
 TRACKER_IOU_THRESHOLD   = 0.2  # minimum IoU to match detection to track
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
 
 # ── GPIO pin assignments (BCM numbering) ──────────────────────────────────────
 PIN_LEFT_FWD  = 17

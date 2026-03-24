@@ -1,24 +1,4 @@
 from app.vision.utils import frame_norm
-<<<<<<< HEAD
-
-
-def get_best_person(frame, detections, label_map):
-    best = None
-    best_area = 0
-
-    for det in detections:
-        label = label_map[det.label] if det.label < len(label_map) else str(det.label)
-        if label != "person":
-            continue
-
-        bbox = frame_norm(frame, (det.xmin, det.ymin, det.xmax, det.ymax))
-        x1, y1, x2, y2 = bbox.tolist()
-        area = max(0, x2 - x1) * max(0, y2 - y1)
-
-        if area > best_area:
-            best_area = area
-            best = (x1, y1, x2, y2, det.confidence)
-=======
 from app.config.settings import DETECTION_LABEL
 
 
@@ -29,7 +9,7 @@ def get_all_persons(frame, detections, label_map):
     """
     persons = []
     for det in detections:
-        label = label_map[det.label] if det.label < len(label_map) else str(det.label)
+        label = label_map[det.label] if det.label < len(label_map) else str(label_map)
         if label != DETECTION_LABEL:
             continue
         bbox = frame_norm(frame, (det.xmin, det.ymin, det.xmax, det.ymax))
@@ -50,6 +30,5 @@ def get_best_person(frame, detections, label_map):
         if area > best_area:
             best_area = area
             best = p
->>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
 
     return best, best_area
