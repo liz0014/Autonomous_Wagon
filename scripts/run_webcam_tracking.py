@@ -1,18 +1,23 @@
 """
 run_webcam_tracking.py
 ----------------------
-Run YOLOv8n on your webcam with single-person lock-on tracking.
-Uses Kalman prediction + 3-way scoring (position, color, size).
-
-Press 'l' to lock onto the largest person, 'u' to unlock, 'q' to quit.
+Run YOLOv8n on your webcam and feed detections into the PersonTracker.
+Prints per-frame tracking info and computed navigation values (cmd, steer,
+speed_factor). Press 'q' to quit.
 
 Requires: `ultralytics`, `opencv-python`, `numpy` (see requirements.txt)
 """
 
 import sys
 import time
+import os
 import cv2
 import numpy as np
+
+# Ensure project root is on sys.path so imports like `from app...` work
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 try:
     from ultralytics import YOLO
@@ -21,43 +26,39 @@ except Exception:
     sys.exit(1)
 
 from app.vision.tracking import PersonTracker
+from app.navigation.person_detection_logic import get_all_persons
+from app.navigation.follow_logic import compute_follow_cmd
 
-# DetectionResult class for compatibility
-class DetectionResult:
-    def __init__(self, xmin, ymin, xmax, ymax, confidence):
-        self.xmin = xmin
-        self.ymin = ymin
-        self.xmax = xmax
-        self.ymax = ymax
-        self.confidence = confidence
-        self.label = 0  # person class
+
+# ── Orange hi-vis HSV range (tune for your lighting) ─────────────────────────
+ORANGE_HSV_LOWER = np.array([5, 160, 160])
+ORANGE_HSV_UPPER = np.array([25, 255, 255])
+ORANGE_MIN_RATIO = 0.08   # at least 8 % of the bbox must be orange
 
 
 def boxes_from_ultralytics(results, frame):
-    """Convert Ultralytics results to DetectionResult list (normalized coords)."""
-    detections = []
+    """Return (x1,y1,x2,y2,conf) only for persons wearing orange hi-vis."""
+    out = []
     if results is None:
-        return detections
-    
-    h, w = frame.shape[:2]
+        return out
     for box in results.boxes:
         cls_id = int(box.cls[0])
         label = results.names[cls_id]
         if label != "person":
             continue
-        
-        # Get normalized coordinates
-        x1, y1, x2, y2 = box.xyxy[0]
-        xmin = float(x1) / w
-        ymin = float(y1) / h
-        xmax = float(x2) / w
-        ymax = float(y2) / h
+        x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
         conf = float(box.conf[0])
-        
-        det = DetectionResult(xmin, ymin, xmax, ymax, conf)
-        detections.append(det)
-    
-    return detections
+
+        # HSV orange check on the crop
+        crop = frame[max(0, y1):y2, max(0, x1):x2]
+        if crop.size == 0:
+            continue
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, ORANGE_HSV_LOWER, ORANGE_HSV_UPPER)
+        orange_ratio = mask.sum() / 255 / mask.size
+        if orange_ratio >= ORANGE_MIN_RATIO:
+            out.append((x1, y1, x2, y2, conf))
+    return out
 
 
 def main(source=0):
@@ -71,106 +72,54 @@ def main(source=0):
     nn_count = 0
     start = time.time()
 
-    print("Controls:")
-    print("  'l'     — LOCK onto the largest person")
-    print("  'u'     — UNLOCK and reset")
-    print("  'q'     — QUIT")
-
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
 
-            # Run YOLOv8 inference
             res = model(frame, verbose=False)[0]
-            detections = boxes_from_ultralytics(res, frame)
+            dets = boxes_from_ultralytics(res, frame)
 
-            # Update tracker with detections and frame
-            target = tracker.update(detections, frame)
+            # Convert to same format as tracker expects (x1,y1,x2,y2,conf)
+            active = tracker.update(dets)
+            target = tracker.get_best_target(active)
 
-            # Compute area for follow logic (if target available)
-            area = 0
             if target is not None:
-                x1, y1, x2, y2, conf = target
+                _tid, x1, y1, x2, y2, conf = target
                 area = max(0, x2 - x1) * max(0, y2 - y1)
-
-            # Draw all detected persons (blue boxes)
-            for det in detections:
-                x1 = int(det.xmin * frame.shape[1])
-                y1 = int(det.ymin * frame.shape[0])
-                x2 = int(det.xmax * frame.shape[1])
-                y2 = int(det.ymax * frame.shape[0])
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-
-            # Draw tracker status
-            if tracker.locked:
-                status = f"[LOCKED] missed={tracker.missed_frames}"
-                status_color = (0, 255, 0)  # green
-            elif tracker.is_lost:
-                status = "[LOST] person disappeared"
-                status_color = (0, 0, 255)  # red
+                ttuple = (x1, y1, x2, y2, conf)
             else:
-                status = "[IDLE] press 'l' to lock"
-                status_color = (255, 255, 0)  # yellow
+                area = 0
+                ttuple = None
 
-            cv2.putText(frame, status, (8, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, status_color, 2)
+            cmd, steer, speed_factor, frame_center = compute_follow_cmd(frame, ttuple, area)
 
-            # Draw predicted position (blue circle)
-            if tracker.predicted_x is not None:
-                cv2.circle(frame, (int(tracker.predicted_x), int(tracker.predicted_y)),
-                          8, (255, 0, 0), 2)
-
-            # Draw locked target (green box)
-            if target is not None:
-                x1, y1, x2, y2, conf = target
-                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)),
-                             (0, 255, 0), 3)
-
-            # Compute FPS
             nn_count += 1
             nn_fps = nn_count / max(1e-6, time.time() - start)
 
-            # Draw info text
-            info = f"FPS: {nn_fps:.1f}  Area: {area:.0f}"
-            cv2.putText(frame, info, (8, frame.shape[0] - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            # Draw detections and tracks
+            for tid, x1, y1, x2, y2, conf in active:
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (255, 0, 0), 2)
+                cx = int((x1 + x2) / 2)
+                cy = int(y1) - 8
+                cv2.putText(frame, f"ID:{tid}", (cx - 20, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
 
-            cv2.imshow("Webcam Tracking (Kalman + Scoring)", frame)
+            if ttuple is not None:
+                x1, y1, x2, y2, conf = ttuple
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 3)
 
-            # Handle keyboard input
+            cv2.putText(frame, f"CMD:{cmd} STEER:{steer:+.2f} SPD:{speed_factor:.0%} FPS:{nn_fps:.1f}",
+                        (8, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+
+            cv2.imshow("Webcam Tracking", frame)
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
-            elif key == ord('l'):
-                # Auto-lock to largest person
-                if detections:
-                    best_box = None
-                    best_area = 0
-                    for det in detections:
-                        x1 = int(det.xmin * frame.shape[1])
-                        y1 = int(det.ymin * frame.shape[0])
-                        x2 = int(det.xmax * frame.shape[1])
-                        y2 = int(det.ymax * frame.shape[0])
-                        area_det = (x2 - x1) * (y2 - y1)
-                        if area_det > best_area:
-                            best_area = area_det
-                            best_box = (x1, y1, x2, y2, det.confidence)
-                    if best_box:
-                        tracker.lock(best_box, frame)
-                        print("✓ Locked onto person")
-            elif key == ord('u'):
-                tracker.unlock()
-                print("✓ Unlocked")
 
     finally:
         cap.release()
         cv2.destroyAllWindows()
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":

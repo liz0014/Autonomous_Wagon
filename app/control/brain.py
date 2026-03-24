@@ -12,13 +12,6 @@ Differential drive steering:
 
 Acceleration ramping prevents sudden jerks by limiting the per-frame
 speed delta to ACCEL_RAMP_RATE.
-
-Example — target is to the right, steer = +0.5, speed_factor = 0.5:
-  speed = 0.55 * 0.5 = 0.275
-  correction = +0.5 * 0.40 = +0.20
-  left_speed  = 0.275 - 0.20 = 0.075  (slows down)
-  right_speed = 0.275 + 0.20 = 0.475  (speeds up)
-  → right wheel faster = wagon curves right = target re-centres ✓
 """
 
 from app.navigation.state_machine import WagonState

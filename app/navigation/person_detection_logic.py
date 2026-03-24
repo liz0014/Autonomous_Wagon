@@ -9,7 +9,7 @@ def get_all_persons(frame, detections, label_map):
     """
     persons = []
     for det in detections:
-        label = label_map[det.label] if det.label < len(label_map) else str(label_map)
+        label = label_map[det.label] if det.label < len(label_map) else str(det.label)
         if label != DETECTION_LABEL:
             continue
         bbox = frame_norm(frame, (det.xmin, det.ymin, det.xmax, det.ymax))
