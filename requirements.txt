@@ -1,4 +1,12 @@
+<<<<<<< HEAD
 opencv-python>=4.8.0
 ultralytics>=8.0.0
 numpy>=1.24.0
 Flask>=2.3.0
+=======
+depthai>=2.25
+opencv-python>=4.8
+numpy>=1.24
+flask>=3.0
+pyserial>=3.5
+>>>>>>> 404f2e000986a15dc4759eb136cb94cd9a5514a4
