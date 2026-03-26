@@ -18,7 +18,9 @@ from app.vision.utils import draw_person_detections, draw_hud
 from app.vision.tracking import PersonTracker
 from app.navigation.follow_logic import compute_follow_cmd
 from app.navigation.state_machine import StateMachine, WagonState
-from app.control import brain, motor_dac, serial
+import app.control.motor_pwm as motor_pwm
+import app.control.brain as brain
+import app.control.serial as serial
 from app.config.settings import FLASK_HOST, FLASK_PORT, JPEG_QUALITY
 
 flask_app = Flask(__name__)
@@ -135,13 +137,15 @@ def _stream():
     """
     sm = StateMachine()
 
-    camera, model, label_map = build_pipeline()
+    pipeline, label_map = build_pipeline()
+
 
     start    = time.monotonic()
     nn_count = 0
 
     try:
-        for frame, detections in frame_generator(camera, model):
+        for frame, detections in frame_generator(pipeline):
+
             nn_count += 1
 
             # Vision — draw blue boxes on all detected persons
@@ -157,14 +161,11 @@ def _stream():
                 best_box = None
                 best_area = 0
                 for det in detections:
-                    x1, y1, x2, y2 = (int(det.xmin * frame.shape[1]),
-                                     int(det.ymin * frame.shape[0]),
-                                     int(det.xmax * frame.shape[1]),
-                                     int(det.ymax * frame.shape[0]))
+                    x1, y1, x2, y2, conf = det
                     area = (x2 - x1) * (y2 - y1)
                     if area > best_area:
                         best_area = area
-                        best_box = (x1, y1, x2, y2, det.confidence)
+                        best_box = det
                 
                 # Auto-lock to largest person as fallback
                 if best_box:
@@ -226,12 +227,13 @@ def _stream():
                    + jpg.tobytes()
                    + b"\r\n")
     finally:
-        camera.release()
+        # Device cleanup is handled by the context manager in frame_generator
+        pass
 
 
 def create_app():
-    """Initialise hardware (motor DAC, serial) then return the Flask app."""
-    motor_dac.init()
+    """Initialise hardware (motor PWM, serial) then return the Flask app."""
+    motor_pwm.init()
     serial.init()
     return flask_app
 
