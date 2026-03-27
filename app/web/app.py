@@ -13,7 +13,7 @@ import time
 import cv2
 from flask import Flask, Response, render_template_string, jsonify
 
-from app.vision.oakd_camera import build_pipeline, frame_generator
+from app.vision.oakd_pipeline import build_pipeline, frame_generator
 from app.vision.utils import draw_person_detections, draw_hud
 from app.vision.tracking import PersonTracker
 from app.navigation.follow_logic import compute_follow_cmd
