@@ -27,22 +27,23 @@ import cv2
 import numpy as np
 
 
+
 # ── Tuning constants ──────────────────────────────────────────────────────────
 
 # Maximum pixel distance between predicted and detected position
 # that we'll still consider a match. Based on our math:
 #   person walks ~9px per frame at normal speed
 #   50px gives comfortable buffer for fast movement or dropped frames
-MAX_POSITION_DISTANCE = 50
+MAX_POSITION_DISTANCE = 80
 
 # Minimum combined score to accept a detection as our person.
 # 0.0 = accept anything, 1.0 = perfect match only.
 # 0.4 means at least a reasonable match across all three clues.
-MIN_SCORE_THRESHOLD = 0.4
+MIN_SCORE_THRESHOLD = 0.25
 
 # How many consecutive missed frames before we declare LOST.
 # At 30fps, 10 frames = 0.33 seconds of patience before freezing.
-LOST_PATIENCE = 10
+LOST_PATIENCE = 20
 
 
 class PersonTracker:
@@ -267,11 +268,13 @@ class PersonTracker:
         Uses distance formula in HSV color space:
           color_distance = sqrt(hue_diff² + sat_diff²)
         """
-        x1, y1, x2, y2, conf = person
 
         if self.color_hsv is None:
             return 0.5   # no color saved yet, neutral score
 
+        x1, y1, x2, y2, conf = person
+
+        
         # Sample the color from this detection's box region
         h, w = frame.shape[:2]
         crop = frame[

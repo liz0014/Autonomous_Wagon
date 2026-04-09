@@ -137,19 +137,26 @@ def _stream():
     """
     sm = StateMachine()
 
-    pipeline, label_map = build_pipeline()
+    pipeline, device, q_rgb, q_nn, q_depth, q_imu = build_pipeline()
 
 
     start    = time.monotonic()
     nn_count = 0
+    last_detections = []
 
     try:
-        for frame, detections in frame_generator(pipeline):
+        for frame, detections in frame_generator(pipeline, device, q_rgb, q_nn, q_depth, q_imu):
 
             nn_count += 1
 
+            if detections:
+              last_detections =detections
+
+            else:
+              detections = last_detections
+
             # Vision — draw blue boxes on all detected persons
-            person_count = draw_person_detections(frame, detections, label_map)
+            person_count = draw_person_detections(frame, detections)
 
             # ── Tracker: update with this frame's detections ────────────────
             # This scores each detection against our saved person (if locked)

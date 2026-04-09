@@ -4,7 +4,7 @@ import cv2
 from app.config.settings import DETECTION_LABEL
 
 
-def draw_person_detections(frame, detections, label_map):
+def draw_person_detections(frame, detections):
     """
     Draw bounding boxes + confidence for every detection.
     detections are tuples: (x1, y1, x2, y2, conf)
