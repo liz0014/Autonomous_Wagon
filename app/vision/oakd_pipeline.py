@@ -122,7 +122,39 @@ def build_pipeline():
     queue_imu   = imu.out.createOutputQueue(maxSize=4, blocking=False)
 
     return pipeline, device, queue_rgb, queue_nn, queue_depth, queue_imu
+
+def sample_depth(depth_frame, x1, y1, x2, y2, rgb_h=IMG_H, rgb_w=IMG_W):
+
+    dh,dw = depth_frame.shape[:2]
+
+    #scaling bounding box from rgb space to depth space
+    scale_x = dw/rgb_w
+    scale_y = dh/rgb_h
+
+    dx1=int(max(0,x1*scale_x))
+    dy1=int(max(0,y1*scale_y))
+
+    dx2=int(min(dw, x2 *scale_x))
+    dy2=int(min(dh, y2 *scale_y))
+
+    region = depth_frame[dy1:dy2, dx1:dx2]
+    if region.size == 0:
+        return 0.0
+
+    #zero meaning no depth is being read
+    valid = region[region>0]
+    if len(valid) == 0:
+        return 0.0
+    
+    depth_mm = float(np.median(valid))
+    return depth_mm/1000.0
+
+    
+
+
+
 """
+
 This is the function app.py calls. It starts the device, reads all queues continuously, and yields (frame, detections) forever.
 """
 def frame_generator(pipeline, device, queue_rgb, queue_nn, queue_depth, queue_imu, conf_threshold=CONF_THRESHOLD):
@@ -144,8 +176,10 @@ def frame_generator(pipeline, device, queue_rgb, queue_nn, queue_depth, queue_im
 
             if rgb_in is None:
                 continue
-
             frame = rgb_in.getCvFrame()
+
+            if depth_in is not None:
+                depth_frame = depth_in.getFrame()
 
             detections = []
             if nn_in is not None:
@@ -161,8 +195,9 @@ def frame_generator(pipeline, device, queue_rgb, queue_nn, queue_depth, queue_im
                     for x1, y1, x2, y2, conf, cls in all_dets:
                         if cls != PERSON_CLASS:
                             continue
-                        detections.append((x1, y1, x2, y2, conf))
-
+                        dist_m = sample_depth(depth_frame, x1, y1, x2, y2) if depth_frame is not None else 0.0
+                
+                        detections.append((x1, y1, x2, y2, conf, dist_m))
             yield frame, detections
 
 if __name__ == "__main__":
@@ -176,7 +211,7 @@ if __name__ == "__main__":
         print(f"frame {count} — {len(detections)} persons — shape: {frame.shape}")
 
         # draw boxes
-        for x1, y1, x2, y2, conf in detections:
+        for x1, y1, x2, y2, conf, *_ in detections:
             cv2.rectangle(frame, (x1,y1), (x2,y2), (0,255,0), 2)
             cv2.putText(frame, f"person {conf:.0%}",
                         (x1, y1-6), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 1)

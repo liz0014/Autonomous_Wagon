@@ -12,7 +12,7 @@ def draw_person_detections(frame, detections):
     """
     person_count = 0
     for det in detections:
-        x1, y1, x2, y2, conf = det
+        x1, y1, x2, y2, conf, *_ = det
 
         person_count += 1
 
@@ -36,7 +36,7 @@ def draw_hud(frame, cmd, steer, person_count, nn_fps,
     h, w = frame.shape[:2]
 
     if target is not None and frame_center is not None:
-        x1, y1, x2, y2, conf = target
+        x1, y1, x2, y2, conf, *_ = target
         cx = (x1 + x2) // 2
         error = cx - frame_center
 

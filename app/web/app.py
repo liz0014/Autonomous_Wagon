@@ -152,7 +152,7 @@ def lock_person():
     # Step 1: Check if the click lands inside any bounding box
     clicked_box = None
     for det in dets:
-        x1, y1, x2, y2, conf = det
+        x1, y1, x2, y2, conf, *_ = det
         if x1 <= click_x <= x2 and y1 <= click_y <= y2:
             clicked_box = det
             break
@@ -161,7 +161,7 @@ def lock_person():
     if clicked_box is None:
         best_dist = float("inf")
         for det in dets:
-            x1, y1, x2, y2, conf = det
+            x1, y1, x2, y2, conf, *_ = det
             cx = (x1 + x2) // 2
             cy = (y1 + y2) // 2
             dist = ((cx - click_x) ** 2 + (cy - click_y) ** 2) ** 0.5
@@ -242,7 +242,7 @@ def _stream():
             # Calculate area of current target (for follow logic)
             area = 0
             if target is not None:
-                x1, y1, x2, y2, conf = target
+                x1, y1, x2, y2, conf, *_ = target
                 area = (x2 - x1) * (y2 - y1)
 
             # ── Navigation: compute steering and command ────────────────────

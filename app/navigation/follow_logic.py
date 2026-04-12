@@ -10,8 +10,12 @@ or None if no person was detected.
 """
 
 from app.config.settings import (
-    STOP_AREA_THRESHOLD, FRAME_CENTER_FRACTION,
-    TARGET_AREA, MIN_AREA,
+    FRAME_CENTER_FRACTION,
+    STOP_DIST_M,
+    TARGET_DIST_M,
+    FOLLOW_START_M,
+    STOP_AREA_THRESHOLD,
+    MIN_AREA,
 )
 
 
@@ -37,7 +41,8 @@ def compute_follow_cmd(frame, target, area):
     if target is None:
         return "SEARCH", 0.0, 0.0, frame_center
 
-    x1, y1, x2, y2, conf = target   # unpack the tuple
+    x1, y1, x2, y2, conf, *rest = target   # unpack the tuple
+    dist_m = rest[0] if rest else 0.0
 
     cx = (x1 + x2) // 2             # horizontal centre of the bounding box
     error = cx - frame_center        # signed pixel offset from frame centre
@@ -46,17 +51,25 @@ def compute_follow_cmd(frame, target, area):
     steer = float(error) / float(frame_center)
     steer = max(-1.0, min(1.0, steer))
 
-    # ── Proportional distance control ─────────────────────────────────────
-    # speed_factor maps bbox area to a 0..1 cruise multiplier:
-    #   area ≤ MIN_AREA  (far)  → 1.0  (full cruise)
-    #   area = TARGET_AREA (~1m) → ~0.47 (walking-pace follow)
-    #   area ≥ STOP_AREA (close) → 0.0  (full stop)
-    if area >= STOP_AREA_THRESHOLD:
-        cmd = "STOP"
-        speed_factor = 0.0
-    else:
-        cmd = "FOLLOW"
-        clamped = max(MIN_AREA, min(area, STOP_AREA_THRESHOLD))
-        speed_factor = (STOP_AREA_THRESHOLD - clamped) / (STOP_AREA_THRESHOLD - MIN_AREA)
+    if dist_m >0.0:
+        if dist_m <= STOP_DIST_M:
+            cmd = "STOP"
+            speed_factor = 0.0
 
-    return cmd, steer, speed_factor, frame_center
+        elif dist_m >= FOLLOW_START_M:
+            cmd = "FOLLOW"
+            speed_factor = 1.0
+        else:
+            cmd = 'FOLLOW'
+            speed_factor = (dist_m - STOP_DIST_M)/(FOLLOW_START_M - STOP_DIST_M)
+            speed_factor = max(0.0, min(1.0, speed_factor))
+
+    else: 
+        if area >= STOP_AREA_THRESHOLD:
+            cmd = "STOP"
+            speed_factor = 0.0
+        else:
+            cmd = "FOLLOW"
+            clamped = max(MIN_AREA, min(area, STOP_AREA_THRESHOLD))
+            speed_factor = (STOP_AREA_THRESHOLD - clamped)/ (STOP_AREA_THRESHOLD - MIN_AREA)
+    return cmd, steer,speed_factor, frame_center

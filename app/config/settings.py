@@ -19,6 +19,11 @@ FRAME_CENTER_FRACTION = 0.5           # 0.5 = exact horizontal centre
 TARGET_AREA         = 50_000   # bbox area at ~1 m following distance
 STOP_AREA_THRESHOLD = 90_000   # too close → full stop
 MIN_AREA            =  5_000   # far away → full cruise speed
+# ── Depth-based distance control (meters) ────────────────────────────────────
+# These replace pixel area thresholds when stereo depth is available.
+STOP_DIST_M     = 0.8   # closer than this → full stop (about arm's length)
+TARGET_DIST_M   = 1.5   # ideal following distance (about 1.5 meters)
+FOLLOW_START_M  = 3.0   # further than this → full cruise speed
 
 # ── Motor drive ───────────────────────────────────────────────────────────────
 BASE_SPEED        = 0.55   # 0.0–1.0 forward cruise speed

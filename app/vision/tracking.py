@@ -103,7 +103,7 @@ class PersonTracker:
             box   : (x1, y1, x2, y2, conf) — the chosen detection tuple
             frame : numpy BGR image — needed to sample clothing color
         """
-        x1, y1, x2, y2, conf = box
+        x1, y1, x2, y2, conf, *_ = box
 
         # ── Save position ─────────────────────────────────────────────────
         # Calculate the centre point of their bounding box.
@@ -224,7 +224,7 @@ class PersonTracker:
 
         Combined score = (position × 0.60) + (color × 0.30) + (size × 0.10)
         """
-        x1, y1, x2, y2, conf = person
+        x1, y1, x2, y2, conf, *_ = person
 
         det_cx = (x1 + x2) // 2
         det_cy = (y1 + y2) // 2
@@ -272,7 +272,7 @@ class PersonTracker:
         if self.color_hsv is None:
             return 0.5   # no color saved yet, neutral score
 
-        x1, y1, x2, y2, conf = person
+        x1, y1, x2, y2, conf, *_ = person
 
         
         # Sample the color from this detection's box region
@@ -355,7 +355,7 @@ class PersonTracker:
         Called when we successfully matched a detection to our person.
         Updates position, recalculates velocity, resets miss counter.
         """
-        x1, y1, x2, y2, conf = box
+        x1, y1, x2, y2, conf, *_ = box
 
         new_cx = (x1 + x2) // 2
         new_cy = (y1 + y2) // 2
