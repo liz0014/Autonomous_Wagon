@@ -11,7 +11,8 @@ Per-frame pipeline:
 
 import time
 import cv2
-from flask import Flask, Response, render_template_string, jsonify
+from flask import Flask, Response, render_template_string, jsonify, request
+import threading
 
 from app.vision.oakd_pipeline import build_pipeline, frame_generator
 from app.vision.utils import draw_person_detections, draw_hud
@@ -22,11 +23,15 @@ import app.control.motor_pwm as motor_pwm
 import app.control.brain as brain
 import app.control.serial as serial
 from app.config.settings import FLASK_HOST, FLASK_PORT, JPEG_QUALITY
+import atexit
 
 flask_app = Flask(__name__)
 
 # Global tracker — persists across frames in the stream
 _tracker = PersonTracker()
+_detection_lock = threading.Lock()
+_current_detections = []
+_current_frame = None
 
 _INDEX = """
 <!doctype html>
@@ -35,51 +40,66 @@ _INDEX = """
   <title>Autonomous Wagon</title>
   <style>
     body { background:#111; color:#eee; font-family:monospace; text-align:center; margin:0; padding:10px; }
-    img  { max-width:100%; border:2px solid #0f0; margin-top:12px; }
+    #video-feed { max-width:100%; border:2px solid #0f0; margin-top:12px; cursor:crosshair; display:block; margin-left:auto; margin-right:auto; }
     .controls { margin-bottom:15px; }
     button { padding:10px 20px; margin:5px; font-size:16px; cursor:pointer; border:none; border-radius:5px; }
-    .lock-btn { background:#0f0; color:#000; font-weight:bold; }
-    .lock-btn:hover { background:#0d0; }
-    .lock-btn.locked { background:#f00; }
-    .lock-btn.locked:hover { background:#d00; }
+    .unlock-btn { background:#f00; color:#fff; font-weight:bold; }
+    .unlock-btn:hover { background:#d00; }
     .status { margin-top:10px; font-size:14px; color:#ffff00; }
   </style>
   <script>
-    let isLocked = false;
-    
-    async function toggleLock() {
-      const btn = document.getElementById('lock-btn');
-      const endpoint = isLocked ? '/unlock' : '/lock';
+    async function handleVideoClick(event) {
+      // Get the image element and its rendered size in the browser
+      const img = document.getElementById('video-feed');
+      const rect = img.getBoundingClientRect();
+
+      // img.naturalWidth/Height is the actual frame size (640x352)
+      // rect.width/height is how big it appears on screen
+      // We scale the click to match actual frame coordinates
+      const scaleX = img.naturalWidth  / rect.width;
+      const scaleY = img.naturalHeight / rect.height;
+      const frameX = Math.round((event.clientX - rect.left) * scaleX);
+      const frameY = Math.round((event.clientY - rect.top)  * scaleY);
+
       try {
-        const response = await fetch(endpoint, {method: 'POST'});
+        const response = await fetch('/lock', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({x: frameX, y: frameY})
+        });
         const data = await response.json();
-        isLocked = data.locked;
-        updateButton();
         updateStatus(data);
       } catch (err) {
-        console.error('Error:', err);
+        console.error('Lock error:', err);
       }
     }
-    
-    function updateButton() {
-      const btn = document.getElementById('lock-btn');
-      if (isLocked) {
-        btn.textContent = 'UNLOCK (Click on Person)';
-        btn.classList.add('locked');
-      } else {
-        btn.textContent = 'LOCK (Click on Person)';
-        btn.classList.remove('locked');
+
+    async function unlock() {
+      try {
+        const response = await fetch('/unlock', {method: 'POST'});
+        const data = await response.json();
+        updateStatus(data);
+      } catch (err) {
+        console.error('Unlock error:', err);
       }
     }
-    
+
     function updateStatus(data) {
       const status = document.getElementById('status');
+      const btn = document.getElementById('unlock-btn');
       if (data.locked) {
-        status.textContent = ' Tracking locked | Missed frames: ' + data.missed_frames;
+        // Show UNLOCK button and update status
+        status.textContent = 'LOCKED — following person | missed=' + data.missed_frames;
+        status.style.color = '#00ff00';
+        btn.style.display = 'inline-block';
       } else if (data.is_lost) {
-        status.textContent = ' Person LOST — waiting...';
+        status.textContent = 'Person LOST — click on someone to re-lock';
+        status.style.color = '#ff4400';
+        btn.style.display = 'none';
       } else {
-        status.textContent = ' Ready to lock onto a person';
+        status.textContent = 'Click on a person in the video to lock';
+        status.style.color = '#ffff00';
+        btn.style.display = 'none';
       }
     }
   </script>
@@ -87,10 +107,14 @@ _INDEX = """
 <body>
   <h2>Autonomous Wagon — Live Feed & Control</h2>
   <div class="controls">
-    <button id="lock-btn" class="lock-btn" onclick="toggleLock()">LOCK (Click on Person)</button>
+    <!-- UNLOCK button — only visible when locked -->
+    <button id="unlock-btn" class="unlock-btn" onclick="unlock()" style="display:none;">
+      UNLOCK
+    </button>
   </div>
-  <div class="status" id="status"> Ready to lock onto a person</div>
-  <img src="/video">
+  <div class="status" id="status">Click on a person in the video to lock</div>
+  <!-- cursor:crosshair shows the user the video is clickable -->
+  <img id="video-feed" src="/video" onclick="handleVideoClick(event)">
 </body>
 </html>
 """
@@ -102,12 +126,60 @@ def index():
 
 @flask_app.route("/lock", methods=["POST"])
 def lock_person():
-    """Called when user clicks LOCK button. Expects the best detection from this frame."""
+    
+    # Parse the JSON body sent by the browser click handler
+    # Expected format: {"x": 312, "y": 180}
+
+    data = request.get_json()
+    click_x = data.get("x")
+    click_y = data.get("y")
+    with _detection_lock:
+      dets = list(_current_detections)
+      frm = _current_frame.copy() if _current_frame is not None else None
+      print(f"DEBUG lock: x={click_x} y={click_y} detections={len(dets)}")    
+        
+
+    # If the click had no coordinates or there are no detections yet,
+    # return current state without changing anything
+    if click_x is None or not dets:
+        return jsonify({
+            "locked": _tracker.locked,
+            "missed_frames": _tracker.missed_frames,
+            "is_lost": _tracker.is_lost,
+            "message": "No detections available"
+        })
+
+    # Step 1: Check if the click lands inside any bounding box
+    clicked_box = None
+    for det in dets:
+        x1, y1, x2, y2, conf = det
+        if x1 <= click_x <= x2 and y1 <= click_y <= y2:
+            clicked_box = det
+            break
+
+    # Step 2: Fallback — find nearest box if click missed all boxes
+    if clicked_box is None:
+        best_dist = float("inf")
+        for det in dets:
+            x1, y1, x2, y2, conf = det
+            cx = (x1 + x2) // 2
+            cy = (y1 + y2) // 2
+            dist = ((cx - click_x) ** 2 + (cy - click_y) ** 2) ** 0.5
+            if dist < best_dist:
+                best_dist = dist
+                clicked_box = det
+
+    # Step 3: Lock the tracker onto the chosen person
+    if clicked_box is not None and frm is not None:
+        _tracker.lock(clicked_box, frm)
+
+    # Return updated tracker state to the browser so the UI can update
     return jsonify({
         "locked": _tracker.locked,
         "missed_frames": _tracker.missed_frames,
         "is_lost": _tracker.is_lost
     })
+
 
 
 @flask_app.route("/unlock", methods=["POST"])
@@ -148,6 +220,10 @@ def _stream():
         for frame, detections in frame_generator(pipeline, device, q_rgb, q_nn, q_depth, q_imu):
 
             nn_count += 1
+            with _detection_lock:
+                _current_detections = detections
+                _current_frame = frame.copy()
+
 
             if detections:
               last_detections =detections
@@ -162,23 +238,7 @@ def _stream():
             # This scores each detection against our saved person (if locked)
             target = _tracker.update(detections, frame)
             
-            # If not locked yet, optionally auto-lock to largest (simple fallback)
-            if not _tracker.locked and detections:
-                # Find largest person as fallback when not tracking
-                best_box = None
-                best_area = 0
-                for det in detections:
-                    x1, y1, x2, y2, conf = det
-                    area = (x2 - x1) * (y2 - y1)
-                    if area > best_area:
-                        best_area = area
-                        best_box = det
-                
-                # Auto-lock to largest person as fallback
-                if best_box:
-                    _tracker.lock(best_box, frame)
-                    target = best_box
-
+          
             # Calculate area of current target (for follow logic)
             area = 0
             if target is not None:
@@ -195,6 +255,13 @@ def _stream():
             # State machine — transition to new state
             state = sm.update(cmd)
 
+            
+# Temporary auto-lock for motor testing — remove when click-to-lock is fixed
+            if not _tracker.locked and detections:
+                best_box = max(detections, key=lambda d: (d[2]-d[0]) * (d[3]-d[1]))
+                _tracker.lock(best_box, frame)
+                target = best_box
+            """
             # Control — send speeds to motors (only if LOCKED)
             # Unlock disables motor control for safety
             if _tracker.locked:
@@ -204,6 +271,7 @@ def _stream():
                 # Not tracking — disable motors
                 brain.execute(WagonState.STOP, 0.0, 0.0)
                 serial.send("STOP", 0.0)
+            """
 
             # HUD — paint telemetry onto the frame
             nn_fps = nn_count / max(1e-6, time.monotonic() - start)
@@ -242,6 +310,8 @@ def create_app():
     """Initialise hardware (motor PWM, serial) then return the Flask app."""
     motor_pwm.init()
     serial.init()
+
+    atexit.register(motor_pwm.cleanup)
     return flask_app
 
 

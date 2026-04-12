@@ -55,17 +55,16 @@ def execute(state: WagonState, steer: float, speed_factor: float = 1.0):
 
     elif state == WagonState.SEARCH:
         # Spin slowly in place to scan (left reverse + right forward)
-        target_left = -SEARCH_TURN_SPEED
-        target_right = SEARCH_TURN_SPEED
-
+        target_left = SEARCH_TURN_SPEED
+        target_right = 0.0
     elif state == WagonState.FOLLOW:
         speed = BASE_SPEED * speed_factor
         correction = steer * STEER_GAIN
         target_left = speed - correction
         target_right = speed + correction
-        # Clamp to [-1, +1]
-        target_left = max(-1.0, min(1.0, target_left))
-        target_right = max(-1.0, min(1.0, target_right))
+        # Clamp to [0, +1] 
+        target_left = max(0.0, min(1.0, target_left))
+        target_right = max(0.0, min(1.0, target_right))
 
     else:
         target_left = 0.0

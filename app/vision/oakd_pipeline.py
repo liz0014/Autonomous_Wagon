@@ -131,10 +131,10 @@ def frame_generator(pipeline, device, queue_rgb, queue_nn, queue_depth, queue_im
 
     with pipeline:
         pipeline.start()
-        time.sleep(1.0)         # let auto-exposure settle
+        time.sleep(0.3)         # let auto-exposure settle
 
         warmup_frames = 0
-        WARMUP_COUNT  = 20      # build buffer for 20 frames before showing boxes
+        WARMUP_COUNT  = 8      # build buffer for 20 frames before showing boxes
 
         while pipeline.isRunning():
             rgb_in   = queue_rgb.tryGet()

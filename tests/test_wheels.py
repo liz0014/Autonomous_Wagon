@@ -2,9 +2,9 @@ import RPi.GPIO as GPIO
 import time
 
 # GPIO pin number for the first motor's PWM signal (BCM numbering)
-PWM_PIN = 13
+PWM_PIN = 13 #Left Motor
 # GPIO pin number for the second motor's PWM signal (BCM numbering)
-PWM_PIN_TWO = 12
+PWM_PIN_TWO = 12 # Right motor
 # PWM frequency in Hertz (100 Hz in this case)
 FREQ = 100
 # Maximum voltage for the motors (Pi outputs 3.3V, capped at 0.8V for safety)
