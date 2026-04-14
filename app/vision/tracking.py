@@ -94,7 +94,7 @@ class PersonTracker:
         self.is_lost = False
 
 
-    def lock(self, box, frame):
+def lock(self, box, frame):
         """
         Called when user presses LOCK.
         Saves everything we know about the chosen person.
@@ -103,7 +103,7 @@ class PersonTracker:
             box   : (x1, y1, x2, y2, conf) — the chosen detection tuple
             frame : numpy BGR image — needed to sample clothing color
         """
-        x1, y1, x2, y2, conf = box
+        x1, y1, x2, y2, conf, *_ = box
 
         # ── Save position ─────────────────────────────────────────────────
         # Calculate the centre point of their bounding box.
@@ -115,23 +115,36 @@ class PersonTracker:
         self.box_w = x2 - x1
         self.box_h = y2 - y1
 
-        # ── Sample clothing color ─────────────────────────────────────────
-        # Crop the bounding box region out of the frame.
-        # frame[y1:y2, x1:x2] gives us just the pixels inside the box.
-        # We clamp to frame boundaries in case the box is at an edge.
+        # ── Sample clothing color (center region only) ────────────────────
+        # To avoid background and edges, sample only from the CENTER 50% 
+        # of the bounding box. This gets clothing, not background or face.
+        # 
+        # Also prefer the LOWER HALF (y center to y2) to get body clothing
+        # instead of face/hair.
         h, w = frame.shape[:2]
-        crop = frame[
-            max(0, y1) : min(h, y2),
-            max(0, x1) : min(w, x2)
-        ]
 
-        # Average all pixels in the crop into one BGR color value.
-        # mean(axis=(0,1)) averages across rows and columns,
-        # leaving us with [avg_B, avg_G, avg_R].
+        # Calculate center region (middle 50% horizontally and lower half)
+        box_center_x = (x1 + x2) // 2
+        box_w_half = (x2 - x1) // 4  # 25% margin on each side = 50% center
+        
+        # Horizontal: center ± 25%
+        crop_x1 = max(0, box_center_x - box_w_half)
+        crop_x2 = min(w, box_center_x + box_w_half)
+        
+        # Vertical: lower 60% of the box (torso/clothing region)
+        crop_y1 = max(0, y1 + (y2 - y1) // 4)  # start at 25% down
+        crop_y2 = min(h, y2)                    # go to bottom of box
+
+        # Extract the center clothing region
+        crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+
+        if crop.size == 0:
+            return  # no valid region to sample, abort lock
+
+        # Average pixels in the crop to get mean clothing color
         avg_bgr = crop.mean(axis=(0, 1))
 
-        # Convert that single averaged color to HSV.
-        # We reshape to (1,1,3) because cvtColor expects an image, not a single pixel.
+        # Convert to HSV for color comparison
         pixel = np.uint8([[avg_bgr]])
         self.color_hsv = cv2.cvtColor(pixel, cv2.COLOR_BGR2HSV)[0][0]
 
