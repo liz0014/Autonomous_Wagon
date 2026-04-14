@@ -30,8 +30,9 @@ flask_app = Flask(__name__)
 # Global tracker — persists across frames in the stream
 _tracker = PersonTracker()
 _detection_lock = threading.Lock()
-_current_detections = []
-_current_frame = None
+_shared = {
+    "detections": [], "frame" : None
+}
 
 _INDEX = """
 <!doctype html>
@@ -134,9 +135,8 @@ def lock_person():
     click_x = data.get("x")
     click_y = data.get("y")
     with _detection_lock:
-      dets = list(_current_detections)
-      frm = _current_frame.copy() if _current_frame is not None else None
-      print(f"DEBUG lock: x={click_x} y={click_y} detections={len(dets)}")    
+      dets = list(_shared["detections"])
+      frm = _shared["frame"].copy() if _shared["frame"] is not None else None
         
 
     # If the click had no coordinates or there are no detections yet,
@@ -217,43 +217,32 @@ def _stream():
     last_detections = []
 
     try:
-        for frame, detections in frame_generator(pipeline, device, q_rgb, q_nn, q_depth, q_imu):
-
-            nn_count += 1
-            with _detection_lock:
-                _current_detections = detections
-                _current_frame = frame.copy()
-
-
+          for frame, detections in frame_generator(pipeline,device, q_rgb, q_nn, q_depth, q_imu ):
+            nn_count +=1
             if detections:
-              last_detections =detections
-
+              last_detections = detections
             else:
-              detections = last_detections
+                detections = last_detections
 
-            # Vision — draw blue boxes on all detected persons
+            with _detection_lock:
+                _shared["detections"] = detections
+                _shared["frame"] = frame.copy()
+    
             person_count = draw_person_detections(frame, detections)
-
-            # ── Tracker: update with this frame's detections ────────────────
-            # This scores each detection against our saved person (if locked)
             target = _tracker.update(detections, frame)
-            
-          
-            # Calculate area of current target (for follow logic)
+
             area = 0
             if target is not None:
                 x1, y1, x2, y2, conf, *_ = target
-                area = (x2 - x1) * (y2 - y1)
+                area = (x2 - x1)*(y2-y1)
 
-            # ── Navigation: compute steering and command ────────────────────
             if _tracker.is_lost:
-                # Person lost — wagon should stop
                 cmd, steer, speed_factor, frame_center = "STOP", 0.0, 0.0, frame.shape[1] // 2
             else:
                 cmd, steer, speed_factor, frame_center = compute_follow_cmd(frame, target, area)
 
-            # State machine — transition to new state
             state = sm.update(cmd)
+
 
             
 # Temporary auto-lock for motor testing — remove when click-to-lock is fixed
