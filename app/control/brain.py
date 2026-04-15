@@ -41,13 +41,14 @@ def _ramp(current, target, rate):
 
 
 def execute(state: WagonState, steer: float, speed_factor: float = 1.0):
+    print(f"DEBUG brain: state={state} steer={steer:.2f} speed={speed_factor:.2f}")
+    global _prev_left, _prev_right
     """
     Args:
         state        : WagonState enum value from state_machine
         steer        : float [-1.0, +1.0] from follow_logic
         speed_factor : float [0.0, 1.0] proportional speed from follow_logic
     """
-    global _prev_left, _prev_right
 
     if state == WagonState.STOP:
         target_left = 0.0

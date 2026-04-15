@@ -246,11 +246,8 @@ def _stream():
 
             
 # Temporary auto-lock for motor testing — remove when click-to-lock is fixed
-            if not _tracker.locked and detections:
-                best_box = max(detections, key=lambda d: (d[2]-d[0]) * (d[3]-d[1]))
-                _tracker.lock(best_box, frame)
-                target = best_box
-            """
+            
+            
             # Control — send speeds to motors (only if LOCKED)
             # Unlock disables motor control for safety
             if _tracker.locked:
@@ -260,7 +257,7 @@ def _stream():
                 # Not tracking — disable motors
                 brain.execute(WagonState.STOP, 0.0, 0.0)
                 serial.send("STOP", 0.0)
-            """
+            
 
             # HUD — paint telemetry onto the frame
             nn_fps = nn_count / max(1e-6, time.monotonic() - start)

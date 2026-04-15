@@ -36,24 +36,31 @@ def init():
 
     try:
         GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False) # Suppress warnings if pins were left in a dirty state from a previous run
+        # Suppress warnings if pins were left in a dirty state from a previous run
+        GPIO.setwarnings(False)
 
-        GPIO.setup(PIN_LEFT, GPIO.OUT)# Configure both pins as outputs
-        GPIO.setup(PIN_RIGHT, GPIO.OUT) 
-        #fully stopped
-        _pwm_left.start(0)
-        _pwm_right.start(0)
+        # Configure both pins as outputs — they will send signals, not receive them
+        GPIO.setup(PIN_LEFT,  GPIO.OUT)
+        GPIO.setup(PIN_RIGHT, GPIO.OUT)
+
+        # Create PWM objects — frequency is set here, duty cycle set later
+        _pwm_left  = GPIO.PWM(PIN_LEFT,  PWM_FREQ)
+        _pwm_right = GPIO.PWM(PIN_RIGHT, PWM_FREQ)
+
+        # Start both motors at 0% duty cycle — fully stopped
+        _pwm_left.start(1)
+        _pwm_right.start(1)
 
         _HW_AVAILABLE = True
-
         log.info("Motor PWM initialized - left=GPIO13, right=GPIO12")
 
     except Exception as e:
-        #if anything fails run the rest of app but without the motors
+        # If anything fails run the rest of app but without the motors
         log.warning(f"motor PWM init failed - running in stub mode ({e})")
         _HW_AVAILABLE = False
 
 def set_speeds(left: float, right: float):
+
 
 
     if not _HW_AVAILABLE:
@@ -64,10 +71,11 @@ def set_speeds(left: float, right: float):
     right = max(0.0, min(1.0, right))
 
 
+
     # converting to duty cycle 
     left_duty = (left * V_MAX) *100
     right_duty = (right * V_MAX)*100
-
+    print(f"DEBUG pwm: left_duty={left_duty:.1f}% right_duty={right_duty:.1f}%") 
     #sending the duty cycle to each motor
     _pwm_left.ChangeDutyCycle(left_duty)
     _pwm_right.ChangeDutyCycle(right_duty)
