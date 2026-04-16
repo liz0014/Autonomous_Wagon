@@ -22,7 +22,7 @@ PIN_RIGHT = 12 #Right motor Controller
 
 PWM_FREQ = 100
 
-V_MAX = 0.8
+V_MAX = 1.0
 
 _pwm_left = None
 _pwm_right = None
@@ -47,9 +47,9 @@ def init():
         _pwm_left  = GPIO.PWM(PIN_LEFT,  PWM_FREQ)
         _pwm_right = GPIO.PWM(PIN_RIGHT, PWM_FREQ)
 
-        # Start both motors at 0% duty cycle — fully stopped
-        _pwm_left.start(1)
-        _pwm_right.start(1)
+        # Start both motors at 70% duty cycle — fully stopped
+        _pwm_left.start(70)
+        _pwm_right.start(70)
 
         _HW_AVAILABLE = True
         log.info("Motor PWM initialized - left=GPIO13, right=GPIO12")

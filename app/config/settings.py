@@ -28,7 +28,7 @@ TARGET_DIST_M   = 1.5   #walk between 0.8m and 3.0m wagon follows
 FOLLOW_START_M  = 3.0   # walk beyond 3.0 m wagon goes full speed
 
 # ── Motor drive ───────────────────────────────────────────────────────────────
-BASE_SPEED        = 0.55   # 0.0–1.0 forward cruise speed, 
+BASE_SPEED        = 0.90   # 0.0–1.0 forward cruise speed, 
 SEARCH_TURN_SPEED = 0.30   # spin-in-place speed while searching
 STEER_GAIN        = 0.40   # how aggressively steer corrects heading
 ACCEL_RAMP_RATE   = 0.05   # max speed change per frame (smooths jerks)
