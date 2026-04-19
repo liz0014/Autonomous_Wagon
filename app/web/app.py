@@ -236,7 +236,7 @@ def _stream():
                 x1, y1, x2, y2, conf, *_ = target
                 area = (x2 - x1)*(y2-y1)
 
-            if _tracker.is_lost:
+            if not _tracker.locked or _tracker.is_lost:
                 cmd, steer, speed_factor, frame_center = "STOP", 0.0, 0.0, frame.shape[1] // 2
             else:
                 cmd, steer, speed_factor, frame_center = compute_follow_cmd(frame, target, area)

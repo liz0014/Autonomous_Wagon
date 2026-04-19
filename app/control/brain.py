@@ -42,7 +42,6 @@ def _ramp(current, target, rate):
 
 
 def execute(state: WagonState, steer: float, speed_factor: float = 1.0):
-    print(f"DEBUG brain: state={state} steer={steer:.2f} speed={speed_factor:.2f}")
     global _prev_left, _prev_right
     """
     Args:

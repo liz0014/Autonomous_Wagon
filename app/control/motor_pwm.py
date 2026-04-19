@@ -48,8 +48,8 @@ def init():
         _pwm_right = GPIO.PWM(PIN_RIGHT, PWM_FREQ)
 
         # Start both motors at 70% duty cycle — fully stopped
-        _pwm_left.start(70)
-        _pwm_right.start(70)
+        _pwm_left.start(0)
+        _pwm_right.start(0)
 
         _HW_AVAILABLE = True
         log.info("Motor PWM initialized - left=GPIO13, right=GPIO12")
@@ -75,7 +75,6 @@ def set_speeds(left: float, right: float):
     # converting to duty cycle 
     left_duty = min((left * V_MAX) *100, MAX_DUTY)
     right_duty = min((right * V_MAX)*100, MAX_DUTY)
-    print(f"DEBUG pwm: left_duty={left_duty:.1f}% right_duty={right_duty:.1f}%") 
     #sending the duty cycle to each motor
     _pwm_left.ChangeDutyCycle(left_duty)
     _pwm_right.ChangeDutyCycle(right_duty)
