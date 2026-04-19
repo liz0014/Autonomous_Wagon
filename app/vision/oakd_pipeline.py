@@ -167,6 +167,7 @@ def frame_generator(pipeline, device, queue_rgb, queue_nn, queue_depth, queue_im
 
         warmup_frames = 0
         WARMUP_COUNT  = 8      # build buffer for 20 frames before showing boxes
+        depth_frame = None
 
         while pipeline.isRunning():
             rgb_in   = queue_rgb.tryGet()
@@ -196,7 +197,6 @@ def frame_generator(pipeline, device, queue_rgb, queue_nn, queue_depth, queue_im
                         if cls != PERSON_CLASS:
                             continue
                         dist_m = sample_depth(depth_frame, x1, y1, x2, y2) if depth_frame is not None else 0.0
-                
                         detections.append((x1, y1, x2, y2, conf, dist_m))
             yield frame, detections
 

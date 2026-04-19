@@ -24,8 +24,9 @@ Example — target is to the right, steer = +0.5, speed_factor = 0.5:
 from app.navigation.state_machine import WagonState
 from app.control import motor_pwm
 from app.config.settings import (
-    BASE_SPEED, SEARCH_TURN_SPEED, STEER_GAIN, ACCEL_RAMP_RATE,
+    BASE_SPEED, SEARCH_TURN_SPEED, STEER_GAIN, ACCEL_RAMP_RATE, MID_MOVE_SPEED,
 )
+
 
 # Persistent state for acceleration ramping
 _prev_left = 0.0
@@ -61,12 +62,15 @@ def execute(state: WagonState, steer: float, speed_factor: float = 1.0):
     elif state == WagonState.FOLLOW:
         speed = BASE_SPEED * speed_factor
         correction = steer * STEER_GAIN
-        target_left = speed - correction
+        # ← these two lines are missing:
+        target_left  = speed - correction
         target_right = speed + correction
-        # Clamp to [0, +1] 
-        target_left = max(0.0, min(1.0, target_left))
+        # Clamp to [0, +1]
+        target_left  = max(0.0, min(1.0, target_left))
         target_right = max(0.0, min(1.0, target_right))
-
+        # Never drop below minimum move speed while following
+        if target_left  > 0: target_left  = max(MID_MOVE_SPEED, target_left)
+        if target_right > 0: target_right = max(MID_MOVE_SPEED, target_right)
     else:
         target_left = 0.0
         target_right = 0.0
