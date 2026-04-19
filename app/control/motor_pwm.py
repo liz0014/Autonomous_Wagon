@@ -21,7 +21,7 @@ PIN_LEFT = 13 #left motor Controller
 PIN_RIGHT = 12 #Right motor Controller
 
 PWM_FREQ = 100
-
+MAX_DUTY = 85.0
 V_MAX = 1.0
 
 _pwm_left = None
@@ -73,8 +73,8 @@ def set_speeds(left: float, right: float):
 
 
     # converting to duty cycle 
-    left_duty = (left * V_MAX) *100
-    right_duty = (right * V_MAX)*100
+    left_duty = min((left * V_MAX) *100, MAX_DUTY)
+    right_duty = min((right * V_MAX)*100, MAX_DUTY)
     print(f"DEBUG pwm: left_duty={left_duty:.1f}% right_duty={right_duty:.1f}%") 
     #sending the duty cycle to each motor
     _pwm_left.ChangeDutyCycle(left_duty)
